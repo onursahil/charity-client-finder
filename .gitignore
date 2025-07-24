@@ -1,0 +1,36 @@
+.DS_Store
+
+# Environment and secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Streamlit
+.streamlit/config.toml
+
+# Logs
+logs/
+*.log
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+.DS_Store?
+._*
+.Trashes
+ehthumbs.db
+
+# Large data files (too big for GitHub, will be loaded into Qdrant Cloud)
+data/charity_commission_data/*.json
