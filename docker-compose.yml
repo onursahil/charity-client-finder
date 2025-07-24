@@ -12,33 +12,26 @@ services:
     environment:
       - QDRANT_HOST=0.0.0.0
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+
 
   # Charity Client Finder App
   charity-finder:
     build: .
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
       - QDRANT_URL=http://qdrant:6333
     depends_on:
-      qdrant:
-        condition: service_healthy
+      - qdrant
     volumes:
       - ./data:/app/data:ro
       - ./logs:/app/logs
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+
 
 volumes:
   qdrant_storage:

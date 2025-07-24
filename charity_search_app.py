@@ -2,6 +2,10 @@ import streamlit as st
 import pandas as pd
 import sys
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Add src directory to Python path
 sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
@@ -277,7 +281,17 @@ def display_lookup_results(lookup_results: list):
         
     st.markdown('<div class="search-method-header">📋 Fuzzy Lookup Table Results</div>', unsafe_allow_html=True)
     
-    for i, result in enumerate(lookup_results, 1):
+    # Performance optimization: Limit displayed results to prevent UI slowdown
+    MAX_DISPLAY_RESULTS = 20
+    total_results = len(lookup_results)
+    
+    if total_results > MAX_DISPLAY_RESULTS:
+        st.warning(f"⚠️ Showing top {MAX_DISPLAY_RESULTS} results out of {total_results} total matches for performance")
+        display_results = lookup_results[:MAX_DISPLAY_RESULTS]
+    else:
+        display_results = lookup_results
+    
+    for i, result in enumerate(display_results, 1):
         match_field = result.get('match_field', 'Unknown')
         similarity = result.get('name_similarity', 0)
         
@@ -301,6 +315,10 @@ def display_lookup_results(lookup_results: list):
                 st.write(f"**Client Org Name:** {result.get('client_org_name', 'N/A')}")
                 st.write(f"**Client Org Sub:** {result.get('client_org_sub', 'N/A')}")
                 st.write(f"**Search Score:** {result.get('score', 0):.3f}")
+    
+    # Show summary if results were limited
+    if total_results > MAX_DISPLAY_RESULTS:
+        st.info(f"💡 To see all {total_results} results, try refining your search query or increasing the score threshold")
 
 def display_all_matches(all_matches: list):
     """Display all hybrid matches ranked by priority."""
@@ -310,7 +328,17 @@ def display_all_matches(all_matches: list):
         
     st.markdown('<div class="search-method-header">🎯 All Hybrid Matches (Ranked by Priority)</div>', unsafe_allow_html=True)
     
-    for i, match in enumerate(all_matches, 1):
+    # Performance optimization: Limit displayed results to prevent UI slowdown
+    MAX_DISPLAY_RESULTS = 30
+    total_results = len(all_matches)
+    
+    if total_results > MAX_DISPLAY_RESULTS:
+        st.warning(f"⚠️ Showing top {MAX_DISPLAY_RESULTS} results out of {total_results} total matches for performance")
+        display_matches = all_matches[:MAX_DISPLAY_RESULTS]
+    else:
+        display_matches = all_matches
+    
+    for i, match in enumerate(display_matches, 1):
         source = match.get('source', 'Unknown')
         match_type = match.get('match_type', 'Unknown')
         is_client = match.get('is_client', False)
@@ -389,6 +417,10 @@ def display_all_matches(all_matches: list):
                         st.write(f"**Match Field:** {details.get('match_field')}")
             
             st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Show summary if results were limited
+    if total_results > MAX_DISPLAY_RESULTS:
+        st.info(f"💡 To see all {total_results} results, try refining your search query or increasing the score threshold")
 
 def main():
     # Initialize search engine
@@ -415,9 +447,10 @@ def main():
         """)
         
         # Show environment info
-        if os.getenv('QDRANT_URL'):
+        qdrant_url = os.getenv('QDRANT_URL')
+        if qdrant_url:
             st.write("🌐 **Environment**: Cloud (Streamlit Cloud + Qdrant Cloud)")
-            st.write(f"🔗 **Qdrant URL**: `{os.getenv('QDRANT_URL')[:50]}...`")
+            st.write(f"🔗 **Qdrant URL**: `{qdrant_url[:50]}...`")
         elif os.getenv('QDRANT_API_KEY'):
             st.write("🌐 **Environment**: Cloud (Custom + Qdrant Cloud)")
         else:
@@ -575,8 +608,9 @@ def main():
         with col1:
             query = st.text_input(
                 "Enter charity name or keywords:",
-                placeholder="e.g., Barnardo's, British Red Cross...",
-                help="Enter the name of the charity you want to search for"
+                placeholder="e.g., Barnardo's, British Red Cross... (Press Enter to search)",
+                help="Enter the name of the charity you want to search for and press Enter or click Search",
+                key="search_input"
             )
             
         with col2:
@@ -588,15 +622,17 @@ def main():
         st.header("Search Parameters")
         
         limit = st.slider("Max Results", min_value=5, max_value=50, value=10, step=5)
-        score_threshold = st.slider("Score Threshold", min_value=0.1, max_value=1.0, value=0.3, step=0.1)
+        score_threshold = st.slider("Score Threshold", min_value=0.1, max_value=1.0, value=0.60, step=0.1)
         
         st.header("Search Options")
         show_vector_details = st.checkbox("Show Vector Results Details", value=True)
         show_lookup_details = st.checkbox("Show Lookup Results Details", value=True)
         show_all_matches = st.checkbox("Show All Hybrid Matches", value=True)
     
-    # Perform search
-    if search_button and query:
+    # Perform search (trigger on button click or when query is entered)
+    should_search = (search_button and query) or (query and len(query.strip()) > 2)
+    
+    if should_search:
         with st.spinner("🔍 Performing hybrid search..."):
             start_time = time.time()
             
@@ -663,8 +699,8 @@ def main():
             else:
                 st.info(f"Found {len(results.get('all_matches', []))} total matches. Enable 'Show All Hybrid Matches' in sidebar to view.")
     
-    elif query and not search_button:
-        st.info("Click the Search button to find matches")
+    elif query and len(query.strip()) <= 2:
+        st.info("Type at least 3 characters to search automatically, or click the Search button")
     
     # Footer
     st.markdown("---")

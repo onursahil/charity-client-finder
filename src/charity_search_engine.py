@@ -10,6 +10,10 @@ import os
 from datetime import datetime
 import logging
 from fuzzywuzzy import fuzz
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging 
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +59,29 @@ class CharitySearchEngine:
         self.client_lookup = pd.read_excel('data/backfill_data_ccn/ClientCCNs.xlsx')
         self.client_lookup['ccn'] = self.client_lookup['ccn'].astype(str)
         self.client_lookup['OrgName'] = self.client_lookup['OrgName'].str.lower()
+        
+        # DEBUG: Log sample data and search for Red Cross entries
+        logger.info(f"Loaded {len(self.client_lookup)} client records")
+        logger.info(f"Client lookup columns: {self.client_lookup.columns.tolist()}")
+        red_cross_entries = self.client_lookup[
+            self.client_lookup['OrgName'].str.contains('red cross|cross', case=False, na=False) |
+            (self.client_lookup['OrgName_Sub'].str.contains('red cross|cross', case=False, na=False) if 'OrgName_Sub' in self.client_lookup.columns else False)
+        ]
+        if len(red_cross_entries) > 0:
+            logger.info(f"Found {len(red_cross_entries)} Red Cross related entries:")
+            for _, entry in red_cross_entries.iterrows():
+                logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}, "
+                           f"OrgName_Sub: {entry.get('OrgName_Sub', 'N/A')}")
+        else:
+            logger.info("No Red Cross entries found in client lookup table")
+        
+        # Also check for "british red cross" specifically
+        british_red_cross_entries = self.client_lookup[
+            self.client_lookup['OrgName'].str.contains('british red cross', case=False, na=False)
+        ]
+        logger.info(f"Found {len(british_red_cross_entries)} entries with 'british red cross' in name")
+        for _, entry in british_red_cross_entries.head(3).iterrows():
+            logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}")
         
         # Initialize the collection
         self._init_collection()
@@ -134,7 +161,9 @@ class CharitySearchEngine:
                     
                     # Download to temporary file
                     with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as temp_file:
-                        urllib.request.urlretrieve(cloud_urls[data_type], temp_file.name)
+                        url = cloud_urls[data_type]
+                        if url:  # Type guard to ensure url is not None
+                            urllib.request.urlretrieve(url, temp_file.name)
                         
                         # Load from temporary file
                         with open(temp_file.name, 'r', encoding='utf-8-sig') as f:
@@ -211,24 +240,40 @@ class CharitySearchEngine:
             text_parts = []
             
             # Add charity name
-            if pd.notna(charity['charity_name']):
-                text_parts.append(f"Charity Name: {charity['charity_name']}")
+            if pd.notna(charity['charity_name']).item():
+                charity_name = charity['charity_name']
+                text_parts.append(f"Charity Name: {charity_name}")
+                
+                # Add common abbreviations and variations for better vector search
+                charity_name_str = str(charity_name).lower()
+                if 'british red cross' in charity_name_str:
+                    text_parts.append("Red Cross British Red Cross Society")
+                elif 'red cross' in charity_name_str:
+                    text_parts.append("Red Cross British Red Cross")
+                elif 'marie curie' in charity_name_str:
+                    text_parts.append("Marie Curie Cancer Care")
+                elif 'cancer research' in charity_name_str:
+                    text_parts.append("Cancer Research UK CRUK")
+                elif 'save the children' in charity_name_str:
+                    text_parts.append("Save the Children")
+                elif 'oxfam' in charity_name_str:
+                    text_parts.append("Oxford Committee for Famine Relief")
             
             # Add charity activities
-            if pd.notna(charity['charity_activities']):
+            if pd.notna(charity['charity_activities']).item():
                 text_parts.append(f"Activities: {charity['charity_activities']}")
             
             # Add address information
             address_parts = []
             for i in range(1, 6):
                 addr_field = f"charity_contact_address{i}"
-                if pd.notna(charity[addr_field]):
+                if pd.notna(charity[addr_field]).item():
                     address_parts.append(str(charity[addr_field]))
             
             if address_parts:
                 text_parts.append(f"Address: {', '.join(address_parts)}")
             
-            if pd.notna(charity['charity_contact_postcode']):
+            if pd.notna(charity['charity_contact_postcode']).item():
                 text_parts.append(f"Postcode: {charity['charity_contact_postcode']}")
             
             # Add classifications
@@ -342,7 +387,7 @@ class CharitySearchEngine:
     
 
 
-    def hybrid_client_search(self, query: str, limit: int = 10, score_threshold: float = 0.3,
+    def hybrid_client_search(self, query: str, limit: int = 10, score_threshold: float = 0.60,
                             filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Hybrid client finder that combines vector search and lookup table fuzzy matching.
@@ -362,7 +407,7 @@ class CharitySearchEngine:
         vector_results = self._vector_search(query, limit, score_threshold, filters)
         
         # 2. Fuzzy Lookup Table Search  
-        lookup_results = self._fuzzy_lookup_search(query)
+        lookup_results = self._fuzzy_lookup_search(query, threshold=int(score_threshold * 100))
         
         # 3. CCN Matching between vector results and lookup table
         ccn_matches = self._ccn_matching(vector_results, lookup_results)
@@ -388,7 +433,7 @@ class CharitySearchEngine:
             'query': query
         }
 
-    def _vector_search(self, query: str, limit: int = 10, score_threshold: float = 0.3,
+    def _vector_search(self, query: str, limit: int = 10, score_threshold: float = 0.60,
                       filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """
         Search for charities in the vector database.
@@ -460,7 +505,7 @@ class CharitySearchEngine:
         Uses multiple matching algorithms for better abbreviation and partial matching.
         
         Returns:
-            List of matches from client lookup table
+            List of matches from client lookup table (limited for performance)
         """
         logger.info(f"Fuzzy lookup search for: '{query}'")
         
@@ -469,13 +514,42 @@ class CharitySearchEngine:
         
         # Get expanded query variations for better abbreviation matching
         query_variations = self._get_query_variations(query)
+        logger.info(f"Query variations for '{query}': {query_variations}")
         
-        # Adjust threshold for short queries (likely abbreviations)
+        # Adjust threshold for better matching
         adjusted_threshold = threshold
         if len(normalized_query) <= 4:  # Short queries like "rspca"
             adjusted_threshold = max(50, threshold - 20)  # Lower threshold for abbreviations
+        elif 'red cross' in query.lower():  # Special handling for red cross
+            adjusted_threshold = 60  # Lower threshold for red cross searches
+            logger.info(f"RED CROSS FUZZY DEBUG: Lowered threshold to {adjusted_threshold} for red cross search")
         
+        # Performance optimization: Use a more efficient approach
+        MAX_RESULTS = 50  # Limit total results for performance
+        MAX_PROCESSED = 2000  # Stop processing after this many rows to avoid slowdown
+        excellent_matches = []  # Store excellent matches (95%+) separately
+        good_matches = []  # Store good matches (70%+) separately
+        moderate_matches = []  # Store moderate matches (threshold%+) separately
+        
+        processed_count = 0
         for _, client_row in self.client_lookup.iterrows():
+            processed_count += 1
+            
+            # Early termination conditions for performance
+            if len(excellent_matches) >= 10:  # If we have 10 excellent matches, stop
+                logger.info(f"FUZZY DEBUG: Found {len(excellent_matches)} excellent matches, stopping early")
+                break
+            if processed_count > MAX_PROCESSED and len(good_matches) >= 20:  # If we've processed enough and have good matches
+                logger.info(f"FUZZY DEBUG: Processed {processed_count} rows, found {len(good_matches)} good matches, stopping")
+                break
+            if processed_count > MAX_PROCESSED * 2:  # Hard limit to prevent infinite processing
+                logger.info(f"FUZZY DEBUG: Reached hard limit of {MAX_PROCESSED * 2} rows, stopping")
+                break
+                
+            # Log progress for debugging
+            if processed_count % 1000 == 0:
+                logger.info(f"FUZZY DEBUG: Processed {processed_count} rows, excellent: {len(excellent_matches)}, good: {len(good_matches)}, moderate: {len(moderate_matches)}")
+                
             client_ccn = str(client_row['ccn'])
             # Type: ignore for pandas type checking false positives
             client_org_name = str(client_row['OrgName']) if not pd.isna(client_row['OrgName']) else ""  # type: ignore
@@ -484,7 +558,7 @@ class CharitySearchEngine:
             # Check similarity with OrgName using multiple algorithms
             best_org_score, org_match_type = self._enhanced_fuzzy_match(query_variations, client_org_name, adjusted_threshold)
             if best_org_score >= adjusted_threshold:
-                lookup_results.append({
+                result = {
                     'source': 'fuzzy_lookup_orgname',
                     'score': best_org_score / 100.0,  # Normalize to 0-1 like vector scores
                     'charity_name': client_org_name,
@@ -494,13 +568,22 @@ class CharitySearchEngine:
                     'client_org_name': client_org_name,
                     'client_org_sub': client_org_sub,
                     'name_similarity': best_org_score
-                })
+                }
+                
+                # Categorize by score for efficient processing
+                if best_org_score >= 95:
+                    excellent_matches.append(result)
+                    logger.info(f"FUZZY DEBUG: Excellent match found! Score:{best_org_score} OrgName:'{client_org_name}'")
+                elif best_org_score >= 70:
+                    good_matches.append(result)
+                else:
+                    moderate_matches.append(result)
             
             # Check similarity with OrgName_Sub using multiple algorithms
             if client_org_sub:
                 best_sub_score, sub_match_type = self._enhanced_fuzzy_match(query_variations, client_org_sub, adjusted_threshold)
                 if best_sub_score >= adjusted_threshold:
-                    lookup_results.append({
+                    result = {
                         'source': 'fuzzy_lookup_orgsub',
                         'score': best_sub_score / 100.0,  # Normalize to 0-1 like vector scores
                         'charity_name': client_org_sub,
@@ -510,19 +593,53 @@ class CharitySearchEngine:
                         'client_org_name': client_org_name,
                         'client_org_sub': client_org_sub,
                         'name_similarity': best_sub_score
-                    })
+                    }
+                    
+                    # Categorize by score for efficient processing
+                    if best_sub_score >= 95:
+                        excellent_matches.append(result)
+                        logger.info(f"FUZZY DEBUG: Excellent sub-match found! Score:{best_sub_score} OrgSub:'{client_org_sub}'")
+                    elif best_sub_score >= 70:
+                        good_matches.append(result)
+                    else:
+                        moderate_matches.append(result)
+        
+        # Combine results in priority order: excellent -> good -> moderate
+        all_results = excellent_matches + good_matches + moderate_matches
         
         # Remove duplicates (same CCN) and keep highest scoring ones
         seen_ccns = {}
-        for result in lookup_results:
+        for result in all_results:
             ccn = result['client_ccn']
             if ccn not in seen_ccns or result['score'] > seen_ccns[ccn]['score']:
                 seen_ccns[ccn] = result
         
         lookup_results = list(seen_ccns.values())
-        lookup_results = sorted(lookup_results, key=lambda x: x['score'], reverse=True)
+        
+        # Enhanced sorting: prioritize exact phrase matches, then by score
+        def sort_key(result):
+            charity_name = result['charity_name'].lower()
+            # Boost score for exact phrase containment
+            if normalized_query in charity_name:
+                return (1, -result['score'])  # High priority for exact phrase matches, negative for desc sort
+            else:
+                return (2, -result['score'])  # Lower priority for fuzzy matches, negative for desc sort
+        
+        lookup_results = sorted(lookup_results, key=sort_key)
+        
+        # Apply final result limit for performance (keep top 50 instead of 100)
+        if len(lookup_results) > MAX_RESULTS:
+            lookup_results = lookup_results[:MAX_RESULTS]
+            logger.info(f"FUZZY DEBUG: Limited results to top {MAX_RESULTS} (found {len(lookup_results)} total)")
         
         logger.info(f"Fuzzy lookup found {len(lookup_results)} results (adjusted threshold: {adjusted_threshold})")
+        
+        # DEBUG: Log top fuzzy matches for troubleshooting
+        if lookup_results:
+            logger.info("Top fuzzy lookup results:")
+            for i, result in enumerate(lookup_results[:3]):  # Log top 3
+                logger.info(f"  {i+1}. {result['charity_name']} - {result['match_field']} "
+                           f"(Score: {result['score']:.3f}, Name Similarity: {result['name_similarity']:.1f}%)")
         
         return lookup_results
 
@@ -601,8 +718,17 @@ class CharitySearchEngine:
         
         all_matches = []
         
-        # Add CCN matches (highest priority)
+        # Add CCN matches (priority based on relevance)
         for ccn_match in ccn_matches:
+            # Only give high priority to CCN matches that are actually relevant to the query
+            name_similarity = ccn_match['name_similarity']
+            if name_similarity >= 60:  # High relevance
+                priority = 1
+            elif name_similarity >= 30:  # Medium relevance  
+                priority = 2
+            else:  # Low relevance - should not be prioritized
+                priority = 4
+                
             match = {
                 'source': 'ccn_match',
                 'match_type': ccn_match['match_type'],
@@ -612,13 +738,13 @@ class CharitySearchEngine:
                 'name_similarity': ccn_match['name_similarity'],
                 'ccn_match': True,
                 'is_client': True,
-                'priority': 1,  # Highest priority
+                'priority': priority,  # Priority based on relevance
                 'combined_score': ccn_match['score'] + (ccn_match['name_similarity'] / 100),
                 'details': ccn_match
             }
             all_matches.append(match)
         
-        # Add fuzzy lookup results (medium priority)
+        # Add fuzzy lookup results (priority based on match quality)
         for lookup_result in lookup_results:
             # Check if this CCN is already covered by CCN matches
             ccn_already_matched = any(
@@ -627,6 +753,15 @@ class CharitySearchEngine:
             )
             
             if not ccn_already_matched:
+                # Prioritize high-quality fuzzy matches
+                name_similarity = lookup_result['name_similarity']
+                if name_similarity >= 85:  # Excellent match
+                    priority = 1
+                elif name_similarity >= 70:  # Good match
+                    priority = 2
+                else:  # Moderate match
+                    priority = 3
+                    
                 match = {
                     'source': lookup_result['source'],
                     'match_type': f"Fuzzy Lookup - {lookup_result['match_field']}",
@@ -636,7 +771,7 @@ class CharitySearchEngine:
                     'name_similarity': lookup_result['name_similarity'],
                     'ccn_match': False,
                     'is_client': True,
-                    'priority': 2,  # Medium priority
+                    'priority': priority,  # Priority based on match quality
                     'combined_score': lookup_result['score'],
                     'details': lookup_result
                 }
@@ -660,7 +795,7 @@ class CharitySearchEngine:
                     'name_similarity': 0,
                     'ccn_match': False,
                     'is_client': False,
-                    'priority': 3,  # Lowest priority
+                    'priority': 5,  # Lowest priority for non-clients
                     'combined_score': vector_result['score'],
                     'details': vector_result
                 }
@@ -688,6 +823,13 @@ class CharitySearchEngine:
         if not client_matches:
             logger.info("No client matches found")
             return None, False
+        
+        # DEBUG: Log all client matches to understand the ranking
+        logger.info(f"All client matches found ({len(client_matches)}):")
+        for i, match in enumerate(client_matches[:5]):  # Log top 5
+            logger.info(f"  {i+1}. {match['charity_name']} - {match['match_type']} "
+                       f"(Priority: {match['priority']}, Combined Score: {match['combined_score']:.3f}, "
+                       f"Name Similarity: {match['name_similarity']:.1f}%)")
         
         # Get the best client match (already sorted by priority and score)
         best_match = client_matches[0]
@@ -747,7 +889,7 @@ class CharitySearchEngine:
         
         return ranked_results
     
-    def search(self, query: str, limit: int = 10, score_threshold: float = 0.3,
+    def search(self, query: str, limit: int = 10, score_threshold: float = 0.60,
                filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Backwards compatible search method that wraps hybrid_client_search.
@@ -824,6 +966,18 @@ class CharitySearchEngine:
                 query_similarity = fuzz.ratio(normalized_search, normalized_org)
                 charity_similarity = fuzz.ratio(normalized_charity, normalized_org)
                 name_scores.append(max(query_similarity, charity_similarity))
+                
+                        # Enhanced phrase matching for "red cross" variations
+        if 'red cross' in normalized_search.lower() or 'red cross' in normalized_charity.lower():
+            if 'red cross' in normalized_org.lower():
+                name_scores.append(90)  # High score for red cross matches
+                logger.info(f"RED CROSS CLIENT DEBUG: Found red cross match! Query:'{normalized_search}' Charity:'{normalized_charity}' Org:'{normalized_org}' Score:90")
+                
+                # Check for exact phrase containment (important for multi-word names)
+                if normalized_search in normalized_org or normalized_org in normalized_search:
+                    name_scores.append(95)  # High score for phrase containment
+                if normalized_charity in normalized_org or normalized_org in normalized_charity:
+                    name_scores.append(95)  # High score for phrase containment
             
             # Compare with OrgName_Sub if available
             if client_org_sub:
@@ -831,6 +985,17 @@ class CharitySearchEngine:
                 query_similarity = fuzz.ratio(normalized_search, normalized_sub)
                 charity_similarity = fuzz.ratio(normalized_charity, normalized_sub)
                 name_scores.append(max(query_similarity, charity_similarity))
+                
+                # Enhanced phrase matching for "red cross" variations in sub-names
+                if 'red cross' in normalized_search.lower() or 'red cross' in normalized_charity.lower():
+                    if 'red cross' in normalized_sub.lower():
+                        name_scores.append(90)  # High score for red cross matches
+                
+                # Check for exact phrase containment in sub-names
+                if normalized_search in normalized_sub or normalized_sub in normalized_search:
+                    name_scores.append(95)  # High score for phrase containment
+                if normalized_charity in normalized_sub or normalized_sub in normalized_charity:
+                    name_scores.append(95)  # High score for phrase containment
             
             # Get the best name similarity score
             best_name_score = max(name_scores) if name_scores else 0
@@ -886,10 +1051,28 @@ class CharitySearchEngine:
         normalized = normalized.replace("'", "").replace("'", "").replace("'", "").replace('"', "")
         # Remove extra spaces
         normalized = " ".join(normalized.split())
-        # Remove common words that might cause confusion
+        
+        # For phrase matching, preserve important compound terms
+        preserved_phrases = ['red cross', 'blue cross', 'green cross']
+        original_normalized = normalized
+        
+        # Remove common words that might cause confusion, but preserve important phrases
         common_words = ['the', 'charity', 'foundation', 'trust', 'limited', 'ltd', 'inc']
         words = normalized.split()
-        words = [w for w in words if w not in common_words]
+        
+        # Check if this contains a preserved phrase
+        contains_preserved_phrase = any(phrase in original_normalized for phrase in preserved_phrases)
+        
+        if not contains_preserved_phrase:
+            # Only remove common words if we don't have a preserved phrase
+            words = [w for w in words if w not in common_words]
+        else:
+            # For preserved phrases, only remove 'the' at the beginning/end
+            if words and words[0] == 'the':
+                words = words[1:]
+            if words and words[-1] == 'the':
+                words = words[:-1]
+        
         return " ".join(words).strip()
     
     def _get_query_variations(self, query: str) -> List[str]:
@@ -917,6 +1100,7 @@ class CharitySearchEngine:
             'rnib': 'royal national institute of blind people',
             'rnid': 'royal national institute for deaf people',
             'brc': 'british red cross',
+            'red cross': 'british red cross',  # Add direct expansion
             'ymca': 'young mens christian association',
             'ywca': 'young womens christian association',
             'oxfam': 'oxford committee for famine relief',
@@ -930,7 +1114,7 @@ class CharitySearchEngine:
             'macmillan': 'macmillan cancer support',
             'marie curie': 'marie curie cancer care',
             'save': 'save the children',
-            'actionaid': 'action aid',
+            # 'actionaid': 'action aid',
             'tearfund': 'tear fund'
         }
         
@@ -938,6 +1122,7 @@ class CharitySearchEngine:
         
         # Check for direct abbreviation match
         if query_lower in abbreviation_map:
+            logger.info(f"ABBREVIATION DEBUG: Found direct match for '{query_lower}' -> '{abbreviation_map[query_lower]}'")
             variations.append(abbreviation_map[query_lower])
             # Also add the full name normalized
             variations.append(self._normalize_name(abbreviation_map[query_lower]))
@@ -947,6 +1132,17 @@ class CharitySearchEngine:
             if abbrev in query_lower or query_lower in abbrev:
                 variations.append(full_name)
                 variations.append(self._normalize_name(full_name))
+        
+        # Special handling for "red cross" variations
+        if 'red cross' in query_lower:
+            logger.info(f"RED CROSS DEBUG: Found 'red cross' in query '{query}'")
+            variations.append('british red cross')
+            variations.append('british red cross society')
+            variations.append('british red cross society, the')
+            variations.append(self._normalize_name('british red cross'))
+            variations.append(self._normalize_name('british red cross society'))
+            variations.append(self._normalize_name('british red cross society, the'))
+            logger.info(f"RED CROSS DEBUG: Added variations: {variations[-6:]}")
         
         # Remove duplicates while preserving order
         seen = set()
@@ -987,11 +1183,20 @@ class CharitySearchEngine:
             if normalized_query == normalized_target:
                 return 100, "exact"
             
-            # 2. Partial ratio - good for abbreviations in longer names
-            partial_score = fuzz.partial_ratio(normalized_query, normalized_target)
-            if partial_score > best_score:
-                best_score = partial_score
-                best_match_type = "partial"
+            # 2. Smart phrase matching - prioritize multi-word queries like "red cross"
+            if " " in normalized_query and len(normalized_query.split()) >= 2:
+                # For multi-word queries, use token set ratio first (better for phrase matching)
+                token_set_score = fuzz.token_set_ratio(normalized_query, normalized_target)
+                if token_set_score > best_score:
+                    best_score = token_set_score
+                    best_match_type = "phrase_match"
+                
+                # Check for exact phrase containment
+                if normalized_query in normalized_target:
+                    phrase_score = 95  # High score for exact phrase match
+                    if phrase_score > best_score:
+                        best_score = phrase_score
+                        best_match_type = "phrase_containment"
             
             # 3. Token sort ratio - good for word order differences
             token_sort_score = fuzz.token_sort_ratio(normalized_query, normalized_target)
@@ -999,21 +1204,33 @@ class CharitySearchEngine:
                 best_score = token_sort_score
                 best_match_type = "token_sort"
             
-            # 4. Token set ratio - good for subset matching
-            token_set_score = fuzz.token_set_ratio(normalized_query, normalized_target)
-            if token_set_score > best_score:
-                best_score = token_set_score
-                best_match_type = "token_set"
-            
-            # 5. Regular ratio - full string comparison
+            # 4. Regular ratio - full string comparison
             ratio_score = fuzz.ratio(normalized_query, normalized_target)
             if ratio_score > best_score:
                 best_score = ratio_score
                 best_match_type = "ratio"
             
+            # 5. Partial ratio - but with restrictions for common words and multi-word queries
+            partial_score = fuzz.partial_ratio(normalized_query, normalized_target)
+            
+            # For multi-word queries, penalize partial matches unless they're very high
+            if len(normalized_query.split()) > 1:
+                # For multi-word queries like "dogs trust", require very high partial scores
+                if partial_score < 90:
+                    partial_score = max(0, partial_score - 30)  # Heavy penalty for weak partial matches
+            
+            # For single common words like "cross", require higher partial score
+            elif len(normalized_query.split()) == 1 and normalized_query in ['cross', 'house', 'center', 'centre', 'dogs']:
+                partial_score = max(0, partial_score - 20)  # Penalize single common word matches
+                
+            if partial_score > best_score:
+                best_score = partial_score
+                best_match_type = "partial"
+            
             # 6. Check if query is contained within target (good for abbreviations)
-            if len(normalized_query) >= 3 and normalized_query in normalized_target:
-                containment_score = 85 + (len(normalized_query) * 2)  # Boost score for containment
+            if len(normalized_query) >= 4 and normalized_query in normalized_target:
+                # For longer queries, boost containment score
+                containment_score = 85 + (len(normalized_query) * 2)
                 if containment_score > best_score:
                     best_score = min(100, containment_score)
                     best_match_type = "containment"
@@ -1142,18 +1359,43 @@ class CharitySearchEngine:
         return ', '.join(address_parts) if address_parts else "Address not available"
     
     def get_collection_info(self) -> Dict[str, Any]:
-        """Get information about the collection."""
+        """Get information about the collection with caching for performance."""
+        # Use simple caching to avoid repeated expensive calls
+        if hasattr(self, '_cached_collection_info'):
+            return self._cached_collection_info
+            
         try:
-            info = self.client.get_collection(self.collection_name)
-            return {
-                'name': self.collection_name,
-                'vectors_count': info.vectors_count,
-                'points_count': info.points_count,
-                'status': info.status
-            }
+            # Skip the problematic client method and go directly to HTTP request
+            import requests
+            qdrant_url = self.qdrant_url or "http://localhost:6333"
+            if self.qdrant_api_key:
+                headers = {"api-key": self.qdrant_api_key}
+            else:
+                headers = {}
+            
+            response = requests.get(f"{qdrant_url}/collections/{self.collection_name}", headers=headers)
+            if response.status_code == 200:
+                data = response.json()
+                result = data.get('result', {})
+                info = {
+                    'name': self.collection_name,
+                    'vectors_count': result.get('indexed_vectors_count', 0),
+                    'points_count': result.get('points_count', 0),
+                    'status': result.get('status', 'unknown')
+                }
+                # Cache the result for future calls
+                self._cached_collection_info = info
+                return info
         except Exception as e:
             logger.error(f"Error getting collection info: {e}")
-            return {}
+            
+        # Return empty info if all methods fail
+        return {
+            'name': self.collection_name,
+            'vectors_count': 0,
+            'points_count': 0,
+            'status': 'error'
+        }
     
     def delete_collection(self):
         """Delete the collection."""
