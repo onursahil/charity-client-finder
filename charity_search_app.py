@@ -481,6 +481,40 @@ def main():
         
         st.markdown("---")
         
+        # Debug section for client lookup table
+        st.subheader("🔍 Debug: Client Lookup Table")
+        
+        if hasattr(search_engine, 'client_lookup') and search_engine.client_lookup is not None:
+            st.success(f"✅ Client lookup table loaded: {len(search_engine.client_lookup)} records")
+            st.write(f"**Columns:** {list(search_engine.client_lookup.columns)}")
+            
+            # Show RSPCA entries
+            rspca_entries = search_engine.client_lookup[
+                search_engine.client_lookup['OrgName'].str.contains('rspca|royal society for the prevention of cruelty to animals', case=False, na=False)
+            ]
+            st.write(f"**RSPCA entries found:** {len(rspca_entries)}")
+            
+            if len(rspca_entries) > 0:
+                st.write("**Sample RSPCA entries:**")
+                for i, (_, entry) in enumerate(rspca_entries.head(3).iterrows()):
+                    st.write(f"  {i+1}. CCN: {entry['ccn']}, OrgName: {entry['OrgName']}")
+            else:
+                st.error("❌ No RSPCA entries found in client lookup table!")
+                
+            # Test fuzzy search directly
+            if st.button("🧪 Test 'r.s.p.c.a' Search"):
+                try:
+                    results = search_engine._fuzzy_lookup_search("r.s.p.c.a", threshold=50)
+                    st.write(f"**Fuzzy search results for 'r.s.p.c.a': {len(results)} matches**")
+                    for i, result in enumerate(results[:5]):
+                        st.write(f"  {i+1}. {result['charity_name']} (Score: {result['score']:.3f})")
+                except Exception as e:
+                    st.error(f"Error testing fuzzy search: {e}")
+        else:
+            st.error("❌ Client lookup table not loaded!")
+        
+        st.markdown("---")
+        
         # Data loading section
         st.subheader("🔄 Load Data")
         
