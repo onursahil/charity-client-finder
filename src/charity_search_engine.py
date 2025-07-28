@@ -56,32 +56,54 @@ class CharitySearchEngine:
         self.vector_size = 384  # Dimension of the sentence transformer embeddings
         
         # Load client lookup table
-        self.client_lookup = pd.read_excel('data/backfill_data_ccn/ClientCCNs.xlsx')
-        self.client_lookup['ccn'] = self.client_lookup['ccn'].astype(str)
-        self.client_lookup['OrgName'] = self.client_lookup['OrgName'].str.lower()
-        
-        # DEBUG: Log sample data and search for Red Cross entries
-        logger.info(f"Loaded {len(self.client_lookup)} client records")
-        logger.info(f"Client lookup columns: {self.client_lookup.columns.tolist()}")
-        red_cross_entries = self.client_lookup[
-            self.client_lookup['OrgName'].str.contains('red cross|cross', case=False, na=False) |
-            (self.client_lookup['OrgName_Sub'].str.contains('red cross|cross', case=False, na=False) if 'OrgName_Sub' in self.client_lookup.columns else False)
-        ]
-        if len(red_cross_entries) > 0:
-            logger.info(f"Found {len(red_cross_entries)} Red Cross related entries:")
-            for _, entry in red_cross_entries.iterrows():
+        try:
+            logger.info("Loading client lookup table from data/backfill_data_ccn/ClientCCNs.xlsx")
+            self.client_lookup = pd.read_excel('data/backfill_data_ccn/ClientCCNs.xlsx')
+            logger.info(f"Successfully loaded client lookup table with {len(self.client_lookup)} records")
+            
+            self.client_lookup['ccn'] = self.client_lookup['ccn'].astype(str)
+            self.client_lookup['OrgName'] = self.client_lookup['OrgName'].str.lower()
+            
+            # DEBUG: Log sample data and search for Red Cross entries
+            logger.info(f"Loaded {len(self.client_lookup)} client records")
+            logger.info(f"Client lookup columns: {self.client_lookup.columns.tolist()}")
+            
+            # Check for RSPCA entries specifically
+            rspca_entries = self.client_lookup[
+                self.client_lookup['OrgName'].str.contains('rspca|royal society for the prevention of cruelty to animals', case=False, na=False) |
+                (self.client_lookup['OrgName_Sub'].str.contains('rspca|royal society for the prevention of cruelty to animals', case=False, na=False) if 'OrgName_Sub' in self.client_lookup.columns else False)
+            ]
+            logger.info(f"Found {len(rspca_entries)} RSPCA related entries:")
+            for _, entry in rspca_entries.head(5).iterrows():
                 logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}, "
                            f"OrgName_Sub: {entry.get('OrgName_Sub', 'N/A')}")
-        else:
-            logger.info("No Red Cross entries found in client lookup table")
-        
-        # Also check for "british red cross" specifically
-        british_red_cross_entries = self.client_lookup[
-            self.client_lookup['OrgName'].str.contains('british red cross', case=False, na=False)
-        ]
-        logger.info(f"Found {len(british_red_cross_entries)} entries with 'british red cross' in name")
-        for _, entry in british_red_cross_entries.head(3).iterrows():
-            logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}")
+            
+            red_cross_entries = self.client_lookup[
+                self.client_lookup['OrgName'].str.contains('red cross|cross', case=False, na=False) |
+                (self.client_lookup['OrgName_Sub'].str.contains('red cross|cross', case=False, na=False) if 'OrgName_Sub' in self.client_lookup.columns else False)
+            ]
+            if len(red_cross_entries) > 0:
+                logger.info(f"Found {len(red_cross_entries)} Red Cross related entries:")
+                for _, entry in red_cross_entries.iterrows():
+                    logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}, "
+                               f"OrgName_Sub: {entry.get('OrgName_Sub', 'N/A')}")
+            else:
+                logger.info("No Red Cross entries found in client lookup table")
+            
+            # Also check for "british red cross" specifically
+            british_red_cross_entries = self.client_lookup[
+                self.client_lookup['OrgName'].str.contains('british red cross', case=False, na=False)
+            ]
+            logger.info(f"Found {len(british_red_cross_entries)} entries with 'british red cross' in name")
+            for _, entry in british_red_cross_entries.head(3).iterrows():
+                logger.info(f"  CCN: {entry['ccn']}, OrgName: {entry['OrgName']}")
+                
+        except Exception as e:
+            logger.error(f"ERROR loading client lookup table: {e}")
+            logger.error(f"Current working directory: {os.getcwd()}")
+            logger.error(f"File exists: {os.path.exists('data/backfill_data_ccn/ClientCCNs.xlsx')}")
+            # Create empty DataFrame as fallback
+            self.client_lookup = pd.DataFrame(columns=['ccn', 'OrgName', 'OrgName_Sub'])
         
         # Initialize the collection
         self._init_collection()
@@ -508,6 +530,8 @@ class CharitySearchEngine:
             List of matches from client lookup table (limited for performance)
         """
         logger.info(f"Fuzzy lookup search for: '{query}'")
+        logger.info(f"Client lookup table has {len(self.client_lookup)} records")
+        logger.info(f"Client lookup columns: {self.client_lookup.columns.tolist()}")
         
         normalized_query = self._normalize_name(query)
         lookup_results = []
@@ -1130,6 +1154,7 @@ class CharitySearchEngine:
             variations.append(abbreviation_map[query_lower])
             # Also add the full name normalized
             variations.append(self._normalize_name(abbreviation_map[query_lower]))
+            logger.info(f"ABBREVIATION DEBUG: Added variations for '{query_lower}': {abbreviation_map[query_lower]}, {self._normalize_name(abbreviation_map[query_lower])}")
         
         # Check for partial abbreviation matches in the query
         for abbrev, full_name in abbreviation_map.items():
