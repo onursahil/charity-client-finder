@@ -481,6 +481,7 @@ class CharitySearchEngine:
         # HARDCODED FIX FOR R.S.P.C.A - Force the same result as local
         query_lower = query.lower().strip()
         if query_lower in ['r.s.p.c.a', 'rspca', 'royal society for the prevention of cruelty to animals']:
+            logger.info("🚨🚨🚨 PRODUCTION RSPCA FIX ACTIVATED! 🚨🚨🚨")
             logger.info("HARDCODED RSPCA FIX: Detected RSPCA search, returning guaranteed client match")
             
             # Create the exact same result that works in local
