@@ -240,7 +240,7 @@ class CharitySearchEngine:
             text_parts = []
             
             # Add charity name
-            if pd.notna(charity['charity_name']).item():
+            if pd.notna(charity['charity_name']):
                 charity_name = charity['charity_name']
                 text_parts.append(f"Charity Name: {charity_name}")
                 
@@ -260,20 +260,20 @@ class CharitySearchEngine:
                     text_parts.append("Oxford Committee for Famine Relief")
             
             # Add charity activities
-            if pd.notna(charity['charity_activities']).item():
+            if pd.notna(charity['charity_activities']):
                 text_parts.append(f"Activities: {charity['charity_activities']}")
             
             # Add address information
             address_parts = []
             for i in range(1, 6):
                 addr_field = f"charity_contact_address{i}"
-                if pd.notna(charity[addr_field]).item():
+                if pd.notna(charity[addr_field]):
                     address_parts.append(str(charity[addr_field]))
             
             if address_parts:
                 text_parts.append(f"Address: {', '.join(address_parts)}")
             
-            if pd.notna(charity['charity_contact_postcode']).item():
+            if pd.notna(charity['charity_contact_postcode']):
                 text_parts.append(f"Postcode: {charity['charity_contact_postcode']}")
             
             # Add classifications
@@ -1094,7 +1094,11 @@ class CharitySearchEngine:
         # Common abbreviation expansions
         abbreviation_map = {
             'rspca': 'royal society for the prevention of cruelty to animals',
+            # 'royal society for the prevention of cruelty to animals': "rspca",
+            # 'royal society for the prevention of cruelty to animals': "r.s.p.c.a",
+            'r.s.p.c.a': 'rspca',
             'nspcc': 'national society for the prevention of cruelty to children',
+            'n.s.p.c.c': 'national society for the prevention of cruelty to children',
             'rnli': 'royal national lifeboat institution',
             'rni': 'royal national institute',
             'rnib': 'royal national institute of blind people',
