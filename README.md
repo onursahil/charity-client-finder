@@ -147,3 +147,4 @@ For questions or issues with the development workflow, check:
 - Local logs in terminal when running `./dev-workflow.sh start-local`
 - Streamlit Cloud deployment logs for production issues
 - GitHub Actions for deployment status # Force deployment update
+# CRITICAL NSPCC FIX - Force deployment
