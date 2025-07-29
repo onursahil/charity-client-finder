@@ -149,3 +149,4 @@ For questions or issues with the development workflow, check:
 - GitHub Actions for deployment status # Force deployment update
 # CRITICAL NSPCC FIX - Force deployment
 # CRITICAL QDRANT ERROR HANDLING FIX
+# FRESH DEPLOYMENT: Ensure perfect local/production parity
