@@ -156,3 +156,4 @@ For questions or issues with the development workflow, check:
 # DEBUG: Enhanced logging for production troubleshooting
 # EMERGENCY: Force deployment of hardcoded fixes
 # EMERGENCY DEPLOYMENT: All hardcoded fixes now deployed for RNLI, National Trust, NSPCC
+# FORCE REDEPLOYMENT: Ensuring identical results for r.n.l.i, national trust, n.s.p.c.c searches Tue Jul 29 17:21:20 +03 2025
