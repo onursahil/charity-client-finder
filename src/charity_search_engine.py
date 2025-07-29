@@ -1695,7 +1695,8 @@ class CharitySearchEngine:
         # Check if client is available
         if self.client is None:
             return {
-                'collection_name': self.collection_name,
+                'name': self.collection_name,
+                'points_count': 0,
                 'vector_count': 0,
                 'status': 'disconnected',
                 'message': 'Qdrant client not available - vector search disabled'
@@ -1714,17 +1715,21 @@ class CharitySearchEngine:
             if response.status_code == 200:
                 data = response.json()
                 result = data.get('result', {})
+                points_count = result.get('points_count', 0)
+                indexed_vectors = result.get('indexed_vectors_count', 0)
                 info = {
-                    'collection_name': self.collection_name,
-                    'vector_count': result.get('vectors_count', 0),
+                    'name': self.collection_name,
+                    'points_count': points_count,
+                    'vector_count': indexed_vectors,  # Keep for backward compatibility
                     'status': 'connected',
-                    'message': f"Connected to Qdrant - {result.get('vectors_count', 0)} vectors available"
+                    'message': f"Connected to Qdrant - {points_count:,} charity records indexed"
                 }
                 self._cached_collection_info = info
                 return info
             else:
                 return {
-                    'collection_name': self.collection_name,
+                    'name': self.collection_name,
+                    'points_count': 0,
                     'vector_count': 0,
                     'status': 'error',
                     'message': f'Failed to get collection info: HTTP {response.status_code}'
@@ -1732,7 +1737,8 @@ class CharitySearchEngine:
         except Exception as e:
             logger.error(f"Error getting collection info: {e}")
             return {
-                'collection_name': self.collection_name,
+                'name': self.collection_name,
+                'points_count': 0,
                 'vector_count': 0,
                 'status': 'error',
                 'message': f'Error connecting to Qdrant: {str(e)}'
