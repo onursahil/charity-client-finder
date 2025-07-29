@@ -148,3 +148,4 @@ For questions or issues with the development workflow, check:
 - Streamlit Cloud deployment logs for production issues
 - GitHub Actions for deployment status # Force deployment update
 # CRITICAL NSPCC FIX - Force deployment
+# CRITICAL QDRANT ERROR HANDLING FIX
