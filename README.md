@@ -152,3 +152,4 @@ For questions or issues with the development workflow, check:
 # FRESH DEPLOYMENT: Ensure perfect local/production parity
 # CRITICAL FIX: Prevent Pooling.init() error and improve error handling
 # CRITICAL: Ensure local and deployed apps use same ClientCCNs file
+# CRITICAL: Production app now uses Excel file instead of fallback table
