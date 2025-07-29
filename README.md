@@ -154,3 +154,4 @@ For questions or issues with the development workflow, check:
 # CRITICAL: Ensure local and deployed apps use same ClientCCNs file
 # CRITICAL: Production app now uses Excel file instead of fallback table
 # DEBUG: Enhanced logging for production troubleshooting
+# EMERGENCY: Force deployment of hardcoded fixes
