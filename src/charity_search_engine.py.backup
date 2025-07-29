@@ -76,20 +76,13 @@ class CharitySearchEngine:
                 self.client_lookup = pd.DataFrame(fallback_data)
                 logger.info(f"Using production fallback client lookup table with {len(self.client_lookup)} essential entries")
             else:
-                # Load the Excel file directly (ClientCCNs.xlsx exists, CSV doesn't)
-                excel_path = 'data/backfill_data_ccn/ClientCCNs.xlsx'
-                
-                if os.path.exists(excel_path):
-                    logger.info(f"Loading client lookup table from Excel: {excel_path}")
-                    try:
-                        self.client_lookup = pd.read_excel(excel_path)
-                        logger.info(f"Successfully loaded client lookup table from Excel with {len(self.client_lookup)} records")
                     except Exception as e:
                         logger.error(f"Error loading Excel file: {e}")
                         raise
                 else:
-                    logger.error(f"Excel file not found: {excel_path}")
-                    raise FileNotFoundError(f"Client lookup table file not found: {excel_path}")
+                    logger.error("Neither CSV nor Excel file found for client lookup table")
+                    raise FileNotFoundError("Client lookup table file not found")
+            
             self.client_lookup['ccn'] = self.client_lookup['ccn'].astype(str)
             self.client_lookup['OrgName'] = self.client_lookup['OrgName'].str.lower()
             
