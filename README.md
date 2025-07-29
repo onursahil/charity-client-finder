@@ -146,4 +146,4 @@ The application automatically deploys to Streamlit Cloud when you push changes t
 For questions or issues with the development workflow, check:
 - Local logs in terminal when running `./dev-workflow.sh start-local`
 - Streamlit Cloud deployment logs for production issues
-- GitHub Actions for deployment status 
+- GitHub Actions for deployment status # Force deployment update
