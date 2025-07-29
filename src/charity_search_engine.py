@@ -131,7 +131,6 @@ class CharitySearchEngine:
             logger.error(f"ERROR loading client lookup table: {e}")
             logger.error(f"Current working directory: {os.getcwd()}")
             logger.error(f"File exists: {os.path.exists('data/backfill_data_ccn/ClientCCNs.xlsx')}")
-            logger.error(f"CSV exists: {os.path.exists('data/backfill_data_ccn/ClientCCNs.csv')}")
             
             # Create fallback with essential client entries
             logger.warning("Using fallback client lookup table with essential entries")
